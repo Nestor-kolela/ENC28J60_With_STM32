@@ -59,6 +59,18 @@ typedef enum _phy_interrupt_flag
 	PLNKIF		= (1 << 4),
 }enc28j60_phy_int_flag;
 
+typedef enum _rx_filter_control
+{
+	RX_BROADCAST		= 1 << 0,
+	RX_MULTICAST		= 1 << 1,
+	RX_HASH_TABLE		= 1 << 2,
+	RX_MAGIC_PACKET		= 1 << 3,
+	RX_PATTERN_MATCH	= 1 << 4,
+	RX_CRC_CHECK		= 1 << 5,
+	RX_AND_OR_CHECK		= 1 << 6,
+	RX_UNITCAST			= 1 << 7,
+}rx_filter_control;
+
 typedef struct spiDriver
 {
 	spiChipSel fncPtrCS;
@@ -67,7 +79,7 @@ typedef struct spiDriver
 	slaveWrite fncPtrWrite;
 }spiDriver;
 
-typedef struct //__attribute__((packed))
+typedef struct __attribute__((packed))
 {
 	uint8_t EIE;
 	uint8_t EIR;
@@ -80,7 +92,6 @@ typedef struct __attribute__((packed))
 {
 	union
 	{
-		//The array represent the whole bank
 		uint8_t u8Rregisters[32];
 		struct
 		{
@@ -120,7 +131,6 @@ typedef struct __attribute__((packed))
 {
 	union
 	{
-		//The array represent the whole bank
 		uint8_t u8Rregisters[32];
 		struct
 		{
@@ -158,7 +168,6 @@ typedef struct __attribute__((packed))
 
 typedef struct __attribute__((packed))
 {
-	//The array represent the whole bank
 	union
 	{
 		uint8_t u8Rregisters[32];
@@ -194,12 +203,10 @@ typedef struct __attribute__((packed))
 			enc28j60_common_regs commonRegs;
 		};
 	};
-
 }enc28j60_bank_2;
 
 typedef struct __attribute__((packed))
 {
-	//The array represent the whole bank
 	union
 	{
 		uint8_t u8Rregisters[32];
@@ -231,7 +238,7 @@ typedef struct __attribute__((packed))
 	};
 }enc28j60_bank_3;
 
-typedef struct _phy_register
+typedef struct __attribute__((packed)) _phy_register
 {
 	uint8_t PHCON1;
 	uint8_t PHSTAT1;
@@ -244,53 +251,18 @@ typedef struct _phy_register
 	uint8_t PHLCON;
 }phy_registers;
 
-typedef struct _enc28j60_opcode
+typedef struct __attribute__((packed)) _enc28j60_opcode
 {
-	union
-	{
-		uint8_t u8readControlRegister;
-		uint8_t RCR;
-	};
-
-	union
-	{
-		uint8_t u8readBufferMemory;
-		uint8_t RBM;
-	};
-
-	union
-	{
-		uint8_t u8writeControlRegister;
-		uint8_t WCR;
-	};
-
-	union
-	{
-		uint8_t u8WriteBufferMemory;
-		uint8_t WBM;
-	};
-
-	union
-	{
-		uint8_t u8BitFieldSet;
-		uint8_t BFS;
-	};
-
-	union
-	{
-		uint8_t u8BitFieldClear;
-		uint8_t BFC;
-	};
-
-	union
-	{
-		uint8_t u8SoftReset;
-		uint8_t SC;
-	};
-
+	uint8_t u8readControlRegister;
+	uint8_t u8readBufferMemory;
+	uint8_t u8writeControlRegister;
+	uint8_t u8WriteBufferMemory;
+	uint8_t u8BitFieldSet;
+	uint8_t u8BitFieldClear;
+	uint8_t u8SoftReset;
 }enc28j60_opcode;
 
-typedef union _enc28j60_reg_value
+typedef union __attribute__((packed)) _enc28j60_reg_value
 {
 	uint16_t u16Val;
 	struct
@@ -299,6 +271,113 @@ typedef union _enc28j60_reg_value
 		uint8_t u8ValHi;
 	};
 }enc28j60_reg_value;
+
+typedef union __attribute__((packed)) _DestAddr
+{
+	uint8_t MacDestAddr[6];
+	struct
+	{
+		uint8_t MacAddrByte1;
+		uint8_t MacAddrByte2;
+		uint8_t MacAddrByte3;
+		uint8_t MacAddrByte4;
+		uint8_t MacAddrByte5;
+		uint8_t MacAddrByte6;
+	};
+}DestAddr;
+
+typedef union __attribute__((packed)) _SrcAddr
+{
+	uint8_t MacSrcAddr[6];
+	struct
+	{
+		uint8_t MacAddrByte1;
+		uint8_t MacAddrByte2;
+		uint8_t MacAddrByte3;
+		uint8_t MacAddrByte4;
+		uint8_t MacAddrByte5;
+		uint8_t MacAddrByte6;
+	};
+}SourceAddr;
+
+typedef union __attribute__((packed)) _packetLength
+{
+	uint16_t packetLength;
+	uint16_t type;
+	struct
+	{
+		uint8_t packetSizeLo;
+		uint8_t packetSizeHi;
+	};
+}packetLength;
+
+typedef struct __attribute__((packed)) _enc28j60_rx_packet
+{
+	//Next Packet Pointer
+	union
+	{
+		uint16_t u16nxtPacketAddr;
+		struct
+		{
+			uint8_t nxtPacketLo;
+			uint8_t nxtPacketHi;
+		};
+	};
+
+	//Receive Status Vector
+	union
+	{
+		uint32_t u32RxStatusVector;
+		struct
+		{
+			union
+			{
+				uint16_t rxByteCount;
+				struct
+				{
+					uint8_t statusLo;
+					uint8_t statusMidLo;
+				};
+			};
+
+			uint8_t statusMidHi;
+			uint8_t statusHi;
+		};
+	};
+
+	//Destination Address
+	DestAddr DstMacAddr;
+
+	//Sour Address
+	SourceAddr SrcMacAddr;
+
+	//Packet Data
+	packetLength pktLength;
+
+	//Data and all possible padding
+	uint8_t	data[1500];
+
+	//CRC Value
+	uint32_t crc;
+}enc28j60_rx_packet;
+
+typedef struct __attribute__((packed)) _enc28j60_tx_packet
+{
+	//Destination Address
+	DestAddr DstMacAddr;
+
+	//Sour Address
+	SourceAddr SrcMacAddr;
+
+	//Packet Data
+	packetLength pktLength;
+
+	//Data and all possible padding
+	uint8_t	data[1500];
+
+	//Status Vector are Written by the hardware
+
+}enc28j60_tx_packet;
 
 typedef struct _enc28j60_driver
 {
@@ -313,11 +392,18 @@ typedef struct _enc28j60_driver
 	enc28j60_opcode const opcode;
 	volatile bool bInterruptFlag;
 	encj28j60_bank bnBank;
-	enc28j60_reg_value rxBufStartAddr;
-	enc28j60_reg_value rxBufEndAddr;
+
+	//Address
+	enc28j60_reg_value const rxBufStartAddr;
+	enc28j60_reg_value const rxBufEndAddr;
 	enc28j60_reg_value rxLockAddr;
-	enc28j60_reg_value txBufStartAddr;
-	enc28j60_reg_value txBufEndAddr;
+	//enc28j60_reg_value const txBufStartAddr;
+	//enc28j60_reg_value const txBufEndAddr;
+	enc28j60_reg_value const MxmPkSize;
+	//Buffers
+	enc28j60_rx_packet rxPkt;
+	enc28j60_tx_packet txPkt;
+
 }enc28j60Drv;
 
 void enc28j60_initDr(enc28j60Drv * dev, spiChipSel cs, spiChipDSl dCS, slaveRead rd, slaveWrite wr, intHandler hdle, delayMs delay);
@@ -336,4 +422,7 @@ uint8_t 	enc28j60_getwakeUpInterrupt(enc28j60Drv * dev);
 
 uint8_t enc28j60_getPhyRevNumber(enc28j60Drv * dev);
 uint8_t enc28j60_readEtherReg(enc28j60Drv * dev, uint8_t u8Reg);
+uint16_t enc28j60_readPhyReg(enc28j60Drv * dev, uint8_t addr);
+void enc28j60_BitFieldClear(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data);
+void enc28j60_BitFieldSet(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data);
 #endif /* ENC28J60_HWD_H_ */

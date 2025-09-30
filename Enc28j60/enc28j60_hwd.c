@@ -12,10 +12,12 @@ static void enc28j60_SoftReset(enc28j60Drv * dev);
 static void enc28j60_writeReg(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8Value);
 //static uint8_t enc28j60_readEtherReg(enc28j60Drv * dev, uint8_t u8Reg);
 static uint8_t enc28j60_readMacMIIReg(enc28j60Drv * dev, uint8_t u8Reg);
-static void enc28j60_BitFieldSet(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data);
-static void enc28j60_BitFieldClear(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data);
-static uint16_t enc28j60_readPhyReg(enc28j60Drv * dev, uint8_t addr);
+//static void enc28j60_BitFieldSet(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data);
+void enc28j60_BitFieldClear(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data);
 
+
+
+static void enc28j60_writePhyReg(enc28j60Drv * dev, uint8_t addr, uint16_t data);
 static uint16_t enc28j60_getPhyPartNumber(enc28j60Drv * dev);
 //static uint8_t enc28j60_getPhyRevNumber(enc28j60Drv * dev);
 static uint32_t enc28j60_getPhyIdentifier(enc28j60Drv * dev);
@@ -27,6 +29,10 @@ static bool enc28j60_getPhyLinkStatus(enc28j60Drv * dev);
 static bool enc28j60_getPhyCollisionStatus(enc28j60Drv * dev);
 static bool enc28j60_getPhyIsRxStatus(enc28j60Drv * dev);
 static bool enc28j60_getPhyIsTxStatus(enc28j60Drv * dev);
+static void enc2860_phyInit(enc28j60Drv * dev);
+static void enc2860_macInit(enc28j60Drv * dev);
+static enc28j60_rxSetFilters(enc28j60Drv * dev, rx_filter_control filter);
+
 
 static encj28j60_bank convertRegValToBank(uint8_t value);
 static uint8_t convertBankToBits(encj28j60_bank bBank);
@@ -46,36 +52,141 @@ void enc28j60_strtDr(enc28j60Drv * dev)
 {
 	enc28j60_sftRst(dev);
 
+	//Wait for clock to become stable
+	while(!(enc28j60_readEtherReg(dev, dev->bank0.commonRegs.ESTAT) & (0x01))) continue;
+
 	//Just for information, but no need for anything further.
 	(void) enc28j60_getPhyRevNumber(dev);
 	(void) enc28j60_getPhyPartNumber(dev);
 	(void) enc28j60_getPhyIdentifier(dev);
 
-#if 0
-	enc28j60_writeReg(dev, dev->bank0.EDMACSH, 0);
-
-	//No Writing of transmit start and end address
-
 	//Receive buffer = 6K meaning from 0x800 to 0x1FFF
-	//Start
-	//enc28j60_reg_value startAddr = {.u16Val = 0x0800};
-	enc28j60_writeReg(dev, dev->bank0.ERXSTH, (uint8_t) dev->rxBufStartAddr.u8ValHi);
+	//Start address
 	enc28j60_writeReg(dev, dev->bank0.ERXSTL, (uint8_t) dev->rxBufStartAddr.u8ValLo);
+	enc28j60_writeReg(dev, dev->bank0.ERXSTH, (uint8_t) dev->rxBufStartAddr.u8ValHi);
 
-	//End
+	//End address
 	//enc28j60_reg_value endAddr = {.u16Val = 0x1FFF};
-	enc28j60_writeReg(dev, dev->bank0.ERXNDH, (uint8_t) (dev->rxBufEndAddr.u8ValHi));
 	enc28j60_writeReg(dev, dev->bank0.ERXNDL, (uint8_t) (dev->rxBufEndAddr.u8ValLo));
+	enc28j60_writeReg(dev, dev->bank0.ERXNDH, (uint8_t) (dev->rxBufEndAddr.u8ValHi));
+
+	enc28j60_writeReg(dev, dev->bank0.ERXRDPTL, (uint8_t) dev->rxBufStartAddr.u8ValLo);
+	enc28j60_writeReg(dev, dev->bank0.ERXRDPTH, (uint8_t) dev->rxBufStartAddr.u8ValHi);
+
+	enc2860_phyInit(dev);
+
+	//Program and Initialize the MAC
+	enc2860_macInit(dev);
+
+	//Program receive filters
+	enc28j60_rxSetFilters(dev, RX_UNITCAST | RX_CRC_CHECK | RX_PATTERN_MATCH
+			| RX_MAGIC_PACKET | RX_HASH_TABLE | RX_MULTICAST | RX_BROADCAST);
+
+	//Enable all interrupts and let's see.
+	enc28j60_writeReg(dev, dev->bank0.commonRegs.EIE, 0xFF);
 
 	//Are we going to do increment?
 	enc28j60_BitFieldSet(dev, dev->bank0.commonRegs.ECON2, (1 << 7));
 
 	//Are we going to auto decrement?
-	enc28j60_BitFieldSet(dev, dev->bank0.commonRegs.ECON2, (1 << 6));
+	//enc28j60_BitFieldSet(dev, dev->bank0.commonRegs.ECON2, (1 << 6));
 
 	//Write to RXEN
 	enc28j60_BitFieldSet(dev, dev->bank0.commonRegs.ECON1, (1 << 2));
 
+
+
+
+}
+
+static void enc2860_macInit(enc28j60Drv * dev)
+{
+
+	//Step 1) clear MARST bit in MACON2
+	uint8_t u8TempValueHolder = enc28j60_readMacMIIReg(dev, dev->bank2.MACLCON2);
+	u8TempValueHolder &= ~(1 << 7);
+	enc28j60_writeReg(dev, dev->bank2.MACLCON2, u8TempValueHolder);
+
+	//Step 2) Set the MARXEN bit in MACON1
+	u8TempValueHolder = enc28j60_readMacMIIReg(dev, dev->bank2.MACON1);
+	//Enable MAC to receive packets, Allow Flow Control for TX and RX
+	u8TempValueHolder |= ((1 << 3) | (1 << 2) | 0x01);
+	enc28j60_writeReg(dev, dev->bank2.MACON1, u8TempValueHolder);
+
+	//Step 3) Configure the PADCFG, TXCRCEN and FULDPX bits of the MACON3
+	u8TempValueHolder = enc28j60_readMacMIIReg(dev, dev->bank2.MACON3);
+	u8TempValueHolder |= ((7 << 5) | (1 << 4) | 0x01);
+	enc28j60_writeReg(dev, dev->bank2.MACON3, u8TempValueHolder);
+	//Step 4) Configure bits in MACON4
+	//We do nothing here.
+
+	//Step 5) Write Tx maximum size
+	enc28j60_writeReg(dev, dev->bank2.MAMXFLL, dev->MxmPkSize.u8ValLo);
+	enc28j60_writeReg(dev, dev->bank2.MAMXFLH, dev->MxmPkSize.u8ValHi);
+
+	//Step 6) 0x15 for full duplex
+	enc28j60_writeReg(dev, dev->bank2.MABBIPG, 0x15);
+
+	//Step 7) 0x12
+	enc28j60_writeReg(dev, dev->bank2.MAIPGL, 0x12);
+
+	//Step 8) Don't do anything as we are in full duplex mode
+
+	//Step 9) Don't do anything here
+
+	//Step 10) Let's write the MAC address
+
+#if 0
+	uint8_t u8TempValueHolder = enc28j60_readMacMIIReg(dev, dev->bank2.MACON1);
+	//Enable MAC to receive packets, Allow Flow Control for TX and RX
+	u8TempValueHolder |= ((1 << 3) | (1 << 2) | 0x01);
+	enc28j60_writeReg(dev, dev->bank2.MACON1, u8TempValueHolder);
+
+
+	//enc28j60_writeReg(dev, dev->bank2.MACON1, 0x0D);
+	enc28j60_writeReg(dev, dev->bank2.MACON3, 0x23);
+	enc28j60_writeReg(dev, dev->bank2.MACON4, 0x40);
+#endif
+
+
+
+	//Step 6) 0x15 for full duplex
+	enc28j60_writeReg(dev, dev->bank2.MABBIPG, 0x15);
+
+	//Step 7) 0x12
+	enc28j60_writeReg(dev, dev->bank2.MAIPGL, 0x12);
+
+	enc28j60_writeReg(dev, dev->bank2.MAMXFLL, dev->MxmPkSize.u8ValLo);
+	enc28j60_writeReg(dev, dev->bank2.MAMXFLH, dev->MxmPkSize.u8ValHi);
+
+	enc28j60_writeReg(dev, dev->bank3.MAADR0, 0x04);
+	enc28j60_writeReg(dev, dev->bank3.MAADR1, 0x7C);
+	enc28j60_writeReg(dev, dev->bank3.MAADR2, 0x16);
+	enc28j60_writeReg(dev, dev->bank3.MAADR3, 0xAF);
+	enc28j60_writeReg(dev, dev->bank3.MAADR4, 0x6A);
+	enc28j60_writeReg(dev, dev->bank3.MAADR5, 0xEE);
+
+
+}
+
+static void enc2860_phyInit(enc28j60Drv * dev)
+{
+
+	//Configure PHCON1
+	uint16_t u16ReturnValue = enc28j60_readPhyReg(dev, dev->phyReg.PHCON1);
+	u16ReturnValue |= (1 << 8);
+	enc28j60_writePhyReg(dev, dev->phyReg.PHCON1, u16ReturnValue);
+
+
+	u16ReturnValue = enc28j60_readPhyReg(dev, dev->phyReg.PHIE);
+	u16ReturnValue |= ((1 << 1) | (1 << 4));
+	enc28j60_writePhyReg(dev, dev->phyReg.PHIE, u16ReturnValue);
+	//Not much to do on PHCON2
+
+#if 0
+	enc28j60_writePhyReg(dev, dev->phyReg.PHCON1, 0x0100);
+	enc28j60_writePhyReg(dev, dev->phyReg.PHCON2, 0x0100);
+	enc28j60_writePhyReg(dev, dev->phyReg.PHLCON, 0x0472);
 #endif
 }
 
@@ -142,6 +253,12 @@ void enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 
 }
 
+static enc28j60_rxSetFilters(enc28j60Drv * dev, rx_filter_control filter)
+{
+#warning "We need you here..."
+	uint8_t u8CastValue = (uint8_t) 0;
+	enc28j60_writeReg(dev, dev->bank1.ERXFCON, u8CastValue);
+}
 static void enc28j60_bankChange(enc28j60Drv * dev, encj28j60_bank bBank)
 {
 	uint8_t u8Command;
@@ -253,7 +370,8 @@ static void enc28j60_writeReg(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8Value)
 	dev->spi.fncPtrChipDS();
 }
 
-static void enc28j60_BitFieldSet(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data)
+void enc28j60_BitFieldSet(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data)
+//static void enc28j60_BitFieldSet(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data)
 {
 	encj28j60_bank bBank = convertRegValToBank(u8Reg);
 	if(bBank != dev->bnBank) enc28j60_bankChange(dev, bBank);
@@ -264,7 +382,8 @@ static void enc28j60_BitFieldSet(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8dat
 	dev->spi.fncPtrChipDS();
 }
 
-static void enc28j60_BitFieldClear(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data)
+void enc28j60_BitFieldClear(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data)
+//static void enc28j60_BitFieldClear(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8data)
 {
 	encj28j60_bank bBank = convertRegValToBank(u8Reg);
 	if(bBank != dev->bnBank) enc28j60_bankChange(dev, bBank);
@@ -283,7 +402,8 @@ static void enc28j60_SoftReset(enc28j60Drv * dev)
 	dev->spi.fncPtrChipDS();
 }
 
-static uint16_t enc28j60_readPhyReg(enc28j60Drv * dev, uint8_t addr)
+uint16_t enc28j60_readPhyReg(enc28j60Drv * dev, uint8_t addr)
+//static uint16_t enc28j60_readPhyReg(enc28j60Drv * dev, uint8_t addr)
 {
 	enc28j60_writeReg(dev, dev->bank2.MIREGADR, addr);
 	uint8_t u8ReturnValuefrSet = enc28j60_readMacMIIReg(dev, dev->bank2.MICMD);
@@ -309,10 +429,10 @@ static uint16_t enc28j60_readPhyReg(enc28j60Drv * dev, uint8_t addr)
 static void enc28j60_writePhyReg(enc28j60Drv * dev, uint8_t addr, uint16_t data)
 {
 	enc28j60_writeReg(dev, dev->bank2.MIREGADR, addr);
-	enc28j60_writeReg(dev, dev->bank2.MIRDL, (uint8_t)(data >> 8));
-	enc28j60_writeReg(dev, dev->bank2.MIRDH, (uint8_t)(data & 0xFF));
+	enc28j60_writeReg(dev, dev->bank2.MIWRL, (uint8_t)(data & 0xFF));
+	enc28j60_writeReg(dev, dev->bank2.MIWRH, (uint8_t)(data >> 8));
 	dev->fncPtrDelayFunc(1);
-	while(enc28j60_readMacMIIReg(dev, dev->bank3.MISTAT) & (1 << 0)) continue;
+	while(enc28j60_readMacMIIReg(dev, dev->bank3.MISTAT) & (0x01)) continue;
 }
 
 static uint16_t enc28j60_getPhyPartNumber(enc28j60Drv * dev)
@@ -545,15 +665,15 @@ enc28j60Drv dev =
 
 	.phyReg = 
 	{
-		.PHCON1 	= 0x0000,
-		.PHSTAT1 	= 0x0001,
-		.PHID1 		= 0x0002,
-		.PHID2 		= 0x0003,
-		.PHCON2 	= 0x0010,
-		.PHSTAT2 	= 0x0000,
-		.PHIE		= 0x0012,
-		.PHIR		= 0x0013,
-		.PHLCON		= 0x0014
+		.PHCON1 	= 0x00,
+		.PHSTAT1 	= 0x01,
+		.PHID1 		= 0x02,
+		.PHID2 		= 0x03,
+		.PHCON2 	= 0x10,
+		.PHSTAT2 	= 0x11,
+		.PHIE		= 0x12,
+		.PHIR		= 0x13,
+		.PHLCON		= 0x14
 	},
 
 	.opcode =
@@ -571,7 +691,7 @@ enc28j60Drv dev =
 	.rxBufStartAddr.u16Val 	= 0x0800,
 	.rxBufEndAddr.u16Val 	= 0x1FFF,
 	.rxLockAddr.u16Val		= 0x0000,
-	.txBufStartAddr			= 0x0000,
-	.txBufEndAddr			= 0x07FF
+	.MxmPkSize				= 1548
+
 };
 

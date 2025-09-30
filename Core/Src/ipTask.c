@@ -24,6 +24,7 @@ ip4_addr_t ipaddr, netmask, gw;
 err_t ethernet_init(struct netif *netif);
 
 extern enc28j60Drv dev;
+extern COM_InitTypeDef BspCOMInit;
 
 void ipConnectivityMainTask(void *argument)
 {
@@ -47,12 +48,62 @@ void ipConnectivityMainTask(void *argument)
 
 	volatile uint8_t u8Value = 0;
 
+	volatile uint16_t u16BaBord = 0;
+
 	while(true)
 	{
 
 		vTaskDelay(50 / portTICK_PERIOD_MS);
-		u8Value = enc28j60_getPhyRevNumber(&dev);
-		u8Value += 0;
+		u8Value = enc28j60_readEtherReg(&dev, dev.bank0.commonRegs.EIR);
+		for(uint8_t cnt = 0; cnt < 8; cnt++)
+		{
+			if(u8Value & (1 << cnt))
+			{
+				enc28j60_BitFieldClear(&dev, dev.bank0.commonRegs.EIE, 1 << 7);
+				vTaskDelay(10 / portTICK_PERIOD_MS);
+				enc28j60_BitFieldSet(&dev, dev.bank0.commonRegs.EIE, 1 << 7);
+				vTaskDelay(10 / portTICK_PERIOD_MS);
+				if(cnt == 4)
+				{
+					(void) enc28j60_readPhyReg(&dev, dev.phyReg.PHIR);
+				}
+
+				switch(cnt)
+				{
+				case 0:
+					//HAL_UART_Transmit(huart, pData, Size, Timeout);
+					break;
+
+				case 1:
+					//HAL_UART_Transmit(huart, pData, Size, Timeout);
+					break;
+
+				case 2:
+					//HAL_UART_Transmit(huart, pData, Size, Timeout);
+					break;
+
+				case 3:
+					//HAL_UART_Transmit(huart, pData, Size, Timeout);
+					break;
+
+				case 4:
+					//HAL_UART_Transmit(huart, pData, Size, Timeout);
+					break;
+
+				case 5:
+					//HAL_UART_Transmit(huart, pData, Size, Timeout);
+					break;
+
+				case 6:
+					//HAL_UART_Transmit(huart, pData, Size, Timeout);
+					break;
+
+				case 7:
+					//HAL_UART_Transmit(huart, pData, Size, Timeout);
+					break;
+				}
+			}
+		}
 	}
 }
 
