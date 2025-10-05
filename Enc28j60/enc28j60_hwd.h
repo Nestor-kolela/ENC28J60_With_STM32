@@ -14,7 +14,7 @@ typedef void (*spiChipSel) (void);
 typedef void (*spiChipDSl) (void);
 typedef void (*slaveWrite) (uint8_t * ptrData, uint16_t const u16length);
 typedef void (*intHandler) (void);
-typedef uint16_t (*slaveRead) (uint8_t * ptrData);
+typedef uint16_t (*slaveRead) (uint8_t * ptrData, uint16_t u16length);
 typedef	void (*delayMs) (uint32_t u32milliSeconds);
 
 #define BANK_0	(uint8_t) 	(0)
@@ -298,9 +298,9 @@ typedef union __attribute__((packed)) _SrcAddr
 		uint8_t MacAddrByte5;
 		uint8_t MacAddrByte6;
 	};
-}SourceAddr;
+}SrcAddr;
 
-typedef union __attribute__((packed)) _packetLength
+typedef union __attribute__((packed)) _pktLength
 {
 	uint16_t packetLength;
 	uint16_t type;
@@ -309,56 +309,49 @@ typedef union __attribute__((packed)) _packetLength
 		uint8_t packetSizeLo;
 		uint8_t packetSizeHi;
 	};
-}packetLength;
+}pktLength;
+
+typedef union __attribute__((packed)) _addrPtr
+{
+	uint16_t u16Ptr;
+	struct
+	{
+		uint8_t ptrLo;
+		uint8_t ptrHi;
+	};
+}addrPtr;
 
 typedef struct __attribute__((packed)) _enc28j60_rx_packet
 {
 	//Next Packet Pointer
-	union
+	struct
 	{
-		uint16_t u16nxtPacketAddr;
-		struct
-		{
-			uint8_t nxtPacketLo;
-			uint8_t nxtPacketHi;
-		};
+		uint8_t nxtPktAddr[2];
 	};
-
 	//Receive Status Vector
-	union
+	struct
 	{
-		uint32_t u32RxStatusVector;
-		struct
-		{
-			union
-			{
-				uint16_t rxByteCount;
-				struct
-				{
-					uint8_t statusLo;
-					uint8_t statusMidLo;
-				};
-			};
-
-			uint8_t statusMidHi;
-			uint8_t statusHi;
-		};
+		uint8_t rxStatVect[4];
 	};
 
 	//Destination Address
 	DestAddr DstMacAddr;
 
 	//Sour Address
-	SourceAddr SrcMacAddr;
+	SrcAddr SrcMacAddr;
 
 	//Packet Data
-	packetLength pktLength;
+	pktLength pktLen;
 
 	//Data and all possible padding
 	uint8_t	data[1500];
 
 	//CRC Value
 	uint32_t crc;
+
+	//Pointer Keeper
+	addrPtr ptrAddr;
+
 }enc28j60_rx_packet;
 
 typedef struct __attribute__((packed)) _enc28j60_tx_packet
@@ -367,10 +360,10 @@ typedef struct __attribute__((packed)) _enc28j60_tx_packet
 	DestAddr DstMacAddr;
 
 	//Sour Address
-	SourceAddr SrcMacAddr;
+	SrcAddr SrcMacAddr;
 
 	//Packet Data
-	packetLength pktLength;
+	pktLength pktLength;
 
 	//Data and all possible padding
 	uint8_t	data[1500];
@@ -397,9 +390,10 @@ typedef struct _enc28j60_driver
 	enc28j60_reg_value const rxBufStartAddr;
 	enc28j60_reg_value const rxBufEndAddr;
 	enc28j60_reg_value rxLockAddr;
-	//enc28j60_reg_value const txBufStartAddr;
-	//enc28j60_reg_value const txBufEndAddr;
+	enc28j60_reg_value const txBufStartAddr;
+	enc28j60_reg_value const txBufEndAddr;
 	enc28j60_reg_value const MxmPkSize;
+
 	//Buffers
 	enc28j60_rx_packet rxPkt;
 	enc28j60_tx_packet txPkt;
@@ -413,8 +407,8 @@ bool enc28j60_intPnd(enc28j60Drv * dev);
 void enc28j60_intSet(enc28j60Drv * dev);
 void enc28j60_intCls(enc28j60Drv * dev);
 
-void enc28j60_ethrTx(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t * length);
-void enc28j60_ethrRx(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t * length);
+bool enc28j60_etherTransmit(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t length);
+bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t length);
 
 uint8_t 	enc28j60_getEtherInterrupt(enc28j60Drv * dev);
 uint16_t 	enc28j60_getPhyInterrupt(enc28j60Drv * dev);
