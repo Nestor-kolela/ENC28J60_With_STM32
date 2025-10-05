@@ -29,9 +29,6 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "stm32l5xx_hal.h"
 
-#include "stm32l5xx_nucleo.h"
-#include <stdio.h>
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -64,6 +61,12 @@ void Error_Handler(void);
 #define EThernet_INT_GPIO_Port GPIOF
 #define Ethernet_CS_Pin GPIO_PIN_14
 #define Ethernet_CS_GPIO_Port GPIOD
+#define LED3_Pin GPIO_PIN_7
+#define LED3_GPIO_Port GPIOC
+#define LED1_Pin GPIO_PIN_9
+#define LED1_GPIO_Port GPIOA
+#define LED2_Pin GPIO_PIN_7
+#define LED2_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

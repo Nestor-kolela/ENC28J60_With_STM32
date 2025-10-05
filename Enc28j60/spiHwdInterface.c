@@ -23,9 +23,9 @@ void spi1ChipDeSelect(void)
 	HAL_GPIO_WritePin(Ethernet_CS_GPIO_Port, Ethernet_CS_Pin, GPIO_PIN_SET);
 }
 
-uint16_t spi1Read(uint8_t * ptrData)
+uint16_t spi1Read(uint8_t * ptrData, uint16_t u16length)
 {
-	return HAL_OK == HAL_SPI_Receive(SPI_HANDLE, ptrData, 1, MAX_TIME_OUT) ? 1 : 0;
+	return HAL_SPI_Receive(SPI_HANDLE, ptrData, u16length, MAX_TIME_OUT) == HAL_OK ? 1 : 0;
 }
 
 void spi1Write(uint8_t * ptrData, uint16_t u16length)
