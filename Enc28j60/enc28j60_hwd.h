@@ -302,12 +302,12 @@ typedef union __attribute__((packed)) _SrcAddr
 
 typedef union __attribute__((packed)) _pktLength
 {
-	uint16_t packetLength;
+	uint16_t u16PktLen;
 	uint16_t type;
 	struct
 	{
-		uint8_t packetSizeLo;
-		uint8_t packetSizeHi;
+		uint8_t pktLo;
+		uint8_t pktHi;
 	};
 }pktLength;
 
