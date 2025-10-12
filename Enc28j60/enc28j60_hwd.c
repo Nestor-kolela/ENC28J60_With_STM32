@@ -92,7 +92,7 @@ void enc28j60_strtDr(enc28j60Drv * dev)
 	enc2860_macInit(dev);
 
 	//Program receive filters
-	enc28j60_rxSetFilters(dev, RX_UNITCAST); //Do unicast to stop everything
+	enc28j60_rxSetFilters(dev, RX_UNITCAST | RX_BROADCAST); //Do unicast to stop everything
 
 	//enc28j60_rxSetFilters(dev, RX_UNITCAST | RX_CRC_CHECK | RX_PATTERN_MATCH
 		//	| RX_MAGIC_PACKET | RX_HASH_TABLE | RX_MULTICAST | RX_BROADCAST);
@@ -277,11 +277,11 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 	(void) dev->spi.fncPtrRead(dev->rxPkt.rxStatVect, 4);
 
 	//For now we compute the length of the packet manually instead of using c-structs
-	uint16_t u16TempLength = *(dev->rxPkt.rxStatVect + 1) << 0x08;
-	u16TempLength |= *(dev->rxPkt.rxStatVect);
-	u16TempLength -= 4; //Get rid of the 4 bytes for the Status Vector
+	dev->rxPkt.pktLen.pktLo = *(dev->rxPkt.rxStatVect + 0);
+	dev->rxPkt.pktLen.pktHi = *(dev->rxPkt.rxStatVect + 1) << 0x08;
+	dev->rxPkt.pktLen.u16PktLen -= 4;
 
-	if(u16TempLength >= 1500)
+	if(dev->rxPkt.pktLen.u16PktLen >= 1500)
 	{
 		//We are done
 		dev->spi.fncPtrChipDS();
@@ -292,7 +292,7 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 	}
 
 	//There is data available from here.
-	dev->spi.fncPtrRead(dev->rxPkt.data, u16TempLength);
+	dev->spi.fncPtrRead(dev->rxPkt.data, dev->rxPkt.pktLen.u16PktLen);
 
 	//We are done
 	dev->spi.fncPtrChipDS();
@@ -306,7 +306,7 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 static void enc28j60_rxSetFilters(enc28j60Drv * dev, rx_filter_control filter)
 {
 #warning "her change"
-	uint8_t u8CastValue = (uint8_t) 0;
+	uint8_t u8CastValue = (uint8_t) filter;
 	enc28j60_writeReg(dev, dev->bank1.ERXFCON, u8CastValue);
 }
 
