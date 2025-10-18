@@ -107,6 +107,7 @@ void enc28j60_strtDr(enc28j60Drv * dev)
 	enc28j60_BitFieldSet(dev, dev->bank0.commonRegs.ECON1, (1 << 2));
 }
 
+
 static void enc2860_macInit(enc28j60Drv * dev)
 {
 	//Step 1) clear MARST bit in MACON2
@@ -252,13 +253,6 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 	 *
 	 * Then the data
 	 *****************************************************************************************************/
-#if 0
-	volatile uint16_t u18pointer1 = (enc28j60_readEtherReg(dev, dev->bank0.ERXWRPTH) << 0x08);
-	u18pointer1 |= (enc28j60_readEtherReg(dev, dev->bank0.ERXWRPTL));
-
-	volatile uint16_t u18pointer = (enc28j60_readEtherReg(dev, dev->bank0.ERXRDPTH) << 0x08);
-	u18pointer |= (enc28j60_readEtherReg(dev, dev->bank0.ERXRDPTL));
-#endif
 
 	//Then check for any more relevant information
 	dev->spi.fncPtrCS();
@@ -279,10 +273,16 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 	//For now we compute the length of the packet manually instead of using c-structs
 	dev->rxPkt.pktLen.pktLo = *(dev->rxPkt.rxStatVect + 0);
 	dev->rxPkt.pktLen.pktHi = *(dev->rxPkt.rxStatVect + 1) << 0x08;
+
+	*(dev->rxPkt.rxStatVect + 2);
+	*(dev->rxPkt.rxStatVect + 3);
+
 	dev->rxPkt.pktLen.u16PktLen -= 4;
 
 	if(dev->rxPkt.pktLen.u16PktLen >= 1500)
 	{
+		//The length can never be 65535, right?
+		dev->rxPkt.pktLen.u16PktLen = 0;
 		//We are done
 		dev->spi.fncPtrChipDS();
 
@@ -305,8 +305,8 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 
 static void enc28j60_rxSetFilters(enc28j60Drv * dev, rx_filter_control filter)
 {
-#warning "her change"
-	uint8_t u8CastValue = (uint8_t) filter;
+#warning "here change"
+	uint8_t u8CastValue = (uint8_t) 0;
 	enc28j60_writeReg(dev, dev->bank1.ERXFCON, u8CastValue);
 }
 
@@ -746,28 +746,9 @@ enc28j60Drv dev =
 	.txBufEndAddr			= 0x07FF,
 	.MxmPkSize				= 1548,
 	.bInterruptFlag			= false,
-	.rxPkt					= 
-								{
-										.nxtPktAddr = {0, 0},
-
-										.rxStatVect = {0, 0, 0, 0},
-
-										.data	= {0} ,
-
-										.ptrAddr.u16Ptr = 0x0800
-								},
-
-	.txPkt					=
-								{
-										.data = {0}
-								},
-
-	.spi 					= 	{
-									.fncPtrCS = NULL,
-									.fncPtrChipDS = NULL,
-									.fncPtrWrite = NULL,
-									.fncPtrRead = NULL
-								},
+	.rxPkt					= { .nxtPktAddr = {0, 0}, .rxStatVect = {0, 0, 0, 0}, .data	= {0}, .ptrAddr.u16Ptr = 0x0800},
+	.txPkt					= { .data = {0}},
+	.spi 					= { .fncPtrCS = NULL, .fncPtrChipDS = NULL, .fncPtrWrite = NULL, .fncPtrRead = NULL},
 	.fncPtrDelayFunc		= NULL,
 
 };
