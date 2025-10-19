@@ -6,7 +6,7 @@
  */
 
 #include "spiHwdInterface.h"
-
+#include "FreeRTOS.h"
 
 extern SPI_HandleTypeDef hspi1;
 
@@ -35,5 +35,5 @@ void spi1Write(uint8_t * ptrData, uint16_t u16length)
 
 void delayMsFunction(uint32_t ms)
 {
-	HAL_Delay(ms);
+	vTaskDelay(ms / portTICK_PERIOD_MS);
 }
