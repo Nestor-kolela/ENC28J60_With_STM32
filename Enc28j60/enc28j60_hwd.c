@@ -271,15 +271,15 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 	(void) dev->spi.fncPtrRead(dev->rxPkt.rxStatVect, 4);
 
 	//For now we compute the length of the packet manually instead of using c-structs
-	dev->rxPkt.pktLen.pktLo = *(dev->rxPkt.rxStatVect + 0);
-	dev->rxPkt.pktLen.pktHi = *(dev->rxPkt.rxStatVect + 1) << 0x08;
+	dev->rxPkt.pktLen.u16PktLen = *(dev->rxPkt.rxStatVect);
+	dev->rxPkt.pktLen.u16PktLen |= *(dev->rxPkt.rxStatVect + 1) << 8;
 
-	*(dev->rxPkt.rxStatVect + 2);
-	*(dev->rxPkt.rxStatVect + 3);
+	(void) *(dev->rxPkt.rxStatVect + 2);
+	(void) *(dev->rxPkt.rxStatVect + 3);
 
 	dev->rxPkt.pktLen.u16PktLen -= 4;
 
-	if(dev->rxPkt.pktLen.u16PktLen >= 1500)
+	if(dev->rxPkt.pktLen.u16PktLen >= 1518)
 	{
 		//The length can never be 65535, right?
 		dev->rxPkt.pktLen.u16PktLen = 0;
