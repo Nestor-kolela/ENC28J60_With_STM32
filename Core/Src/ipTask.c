@@ -4,7 +4,7 @@
  *  Created on: Feb 13, 2025
  *      Author: NK KALAMBAY
  */
-#include "ringBuffer.h"
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -23,31 +23,21 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 
+#include "log.h"
 
 struct netif my_netif;
 ip4_addr_t ipaddr, netmask, gw;
 
 err_t ethernet_init(struct netif *netif);
-void uartPrint(const char * ptr);
-void uartPrintBytes(uint8_t * ptr, uint16_t length);
 
 extern enc28j60Drv dev;
-extern UART_HandleTypeDef hlpuart1;
+extern osMessageQueueId_t qDebugPrintHandle;
 
-SemaphoreHandle_t xSemaphore;
 
-char buf[64];
-uint32_t u32PacketCounter = 0;
-uint8_t u8TempValue[10];
-ft_ringBuffer uartQueue;
-volatile bool bDMATxFlag = false;
-uint32_t previous = 0;
-uint32_t current = 0;
-char stringUpTime[64];
-uint8_t second = 0;
-uint8_t minute = 0;
-uint8_t hour;
-uint8_t data[1024];
+
+static uint32_t u32PacketCounter = 0;
+static uint8_t u8TempValue[10];
+
 void ipConnectivityMainTask(void *argument)
 {
 	enc28j60_initDr(&dev, spi1ChipSelect, spi1ChipDeSelect, spi1Read, spi1Write, NULL, delayMsFunction);
@@ -64,142 +54,91 @@ void ipConnectivityMainTask(void *argument)
 
 	volatile uint8_t u8Value = 0;
 
-	xSemaphore = xSemaphoreCreateMutex();
-
-	tf_ringbuffer_init(&uartQueue);
-
+	uint32_t ulEventsToProcess = 0;
 	while(true)
 	{
+		ulEventsToProcess = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 		//Print the up-time as well
-		current = (xTaskGetTickCount() * 1000 / configTICK_RATE_HZ);
-		if(current - previous > 1000)
+		while(ulEventsToProcess > 0)
 		{
-			UBaseType_t watermark = uxTaskGetStackHighWaterMark(NULL);
-
-			int err;
-			err =  snprintf(stringUpTime, sizeof(stringUpTime), "Stack is at %lu\r\n", watermark);
-			if(err > 0) tf_ringbuffer_puts(&uartQueue, stringUpTime);
-			err = snprintf(stringUpTime, sizeof(stringUpTime), "Time %02u:%02u:%02u\r\n", hour, minute, second);
-			if(err > 0) tf_ringbuffer_puts(&uartQueue, stringUpTime);
-			previous = current;
-
-			if(++second >= 60)
+			--ulEventsToProcess;
+			u8Value = enc28j60_readEtherReg(&dev, dev.bank0.commonRegs.EIR);
+			for(uint8_t cnt = 0; cnt < 8; cnt++)
 			{
-				second = 0;
-				if(++minute >= 60)
+				if(u8Value & (1 << cnt))
 				{
-					minute = 0;
-					if(++hour >= 24)
+					enc28j60_BitFieldClear(&dev, dev.bank0.commonRegs.EIE, 1 << 7);
+					enc28j60_BitFieldSet(&dev, dev.bank0.commonRegs.EIE, 1 << 7);
+
+					switch(cnt)
 					{
-						hour = 0;
-					}
-				}
-			}
-		}
+					case 0:
+						dMesgPrint(DEBUG_ERROR, "1) Receive Error Interrupt Flag bit\r\n");
+						break;
 
-		if(tf_ringbuffer_dataIsAvailable(&uartQueue) == ft_ring_buffer_data_available)
-		{
-			if(bDMATxFlag == false)
-			{
-				uint8_t data;
-				tf_ringBuffer_status stat;
-				stat = tf_ringbuffer_readByte(&uartQueue, &data);
-				if(stat == ft_ring_buffer_read_success)
-				{
-					uartPrintBytes(&data, 1);
-					bDMATxFlag = true;
-				}
+					case 1:
+						dMesgPrint(DEBUG_ERROR, "2) Transmit Error Interrupt Flag bit\r\n");
+						break;
 
-			}
-		}
+					case 2:
+						dMesgPrint(DEBUG_INFO, "3) WOL Interrupt Flag bit\r\n");
+						break;
 
-		u8Value = enc28j60_readEtherReg(&dev, dev.bank0.commonRegs.EIR);
-		for(uint8_t cnt = 0; cnt < 8; cnt++)
-		{
-			if(u8Value & (1 << cnt))
-			{
-				enc28j60_BitFieldClear(&dev, dev.bank0.commonRegs.EIE, 1 << 7);
-				enc28j60_BitFieldSet(&dev, dev.bank0.commonRegs.EIE, 1 << 7);
+					case 3:
+						dMesgPrint(DEBUG_INFO, "4) Transmit Interrupt Flag bit\r\n");
+						break;
 
-				switch(cnt)
-				{
-				case 0:
-					tf_ringbuffer_puts(&uartQueue, "1) Receive Error Interrupt Flag bit\r\n");
-					break;
+					case 4:
+						dMesgPrint(DEBUG_INFO, "5) Link Change Interrupt Flag bit\r\n");
+						(void) enc28j60_readPhyReg(&dev, dev.phyReg.PHIR);
+						break;
 
-				case 1:
-					tf_ringbuffer_puts(&uartQueue, "2) Transmit Error Interrupt Flag bit\r\n");
-					break;
+					case 5:
+						dMesgPrint(DEBUG_INFO, "5) DMA Interrupt Flag bit\r\n");
+						break;
 
-				case 2:
-					tf_ringbuffer_puts(&uartQueue, "3) WOL Interrupt Flag bit\r\n");
-					break;
+					case 6:
+						dMesgPrint(DEBUG_INFO, "6) Receive Packet Pending Interrupt Flag bit\r\n");
 
-				case 3:
-					tf_ringbuffer_puts(&uartQueue, "4) Transmit Interrupt Flag bit\r\n");
-					break;
-
-				case 4:
-					tf_ringbuffer_puts(&uartQueue, "5) Link Change Interrupt Flag bit\r\n");
-					(void) enc28j60_readPhyReg(&dev, dev.phyReg.PHIR);
-					break;
-
-				case 5:
-					tf_ringbuffer_puts(&uartQueue, "5) DMA Interrupt Flag bit\r\n");
-					break;
-
-				case 6:
-					tf_ringbuffer_puts(&uartQueue, "6) Receive Packet Pending Interrupt Flag bit\r\n");
-
-					bool err;
-					err = enc28j60_etherReceive(&dev, u8TempValue, 0);
-
-					if(err == true)
-					{
-						//Packet number
-						snprintf((char *) buf, sizeof(buf), "Packet number %lu\r\n", u32PacketCounter++);
-						tf_ringbuffer_puts(&uartQueue, buf);
-
-						//Packet length
-						snprintf((char *) buf, sizeof(buf), "Packet length %u\r\n", dev.rxPkt.pktLen.u16PktLen);
-						tf_ringbuffer_puts(&uartQueue, buf);
-
-						char tempBuffer[10];
-						for(uint16_t i = 0; i < dev.rxPkt.pktLen.u16PktLen; i++)
+						bool err;
+						err = enc28j60_etherReceive(&dev, u8TempValue, 0);
+						if(err == true)
 						{
-							uint8_t u8ReadData = dev.rxPkt.data[i];
-							snprintf(tempBuffer, sizeof(tempBuffer), "0x%02X ", u8ReadData);
-							if((i != 0) && ((i % 16) == 0)) tf_ringbuffer_puts(&uartQueue, "\r\n");
+							//Packet number
+							dMesgPrint(DEBUG_INFO, "Packet number %d\r\n", u32PacketCounter++);
 
-							tf_ringbuffer_puts(&uartQueue, tempBuffer);
+							//Packet length
+							dMesgPrint(DEBUG_INFO, "Packet length %d\r\n", dev.rxPkt.pktLen.u16PktLen);
+
+							char tempBuffer[10];
+							for(uint16_t i = 0; i < dev.rxPkt.pktLen.u16PktLen; i++)
+							{
+								uint8_t u8ReadData = dev.rxPkt.data[i];
+
+								if((i != 0) && ((i % 16) == 0)) dMesgPrint(DEBUG_DEBUG, "\r\n");
+								dMesgPrint(DEBUG_DEBUG, "%02X ", u8ReadData);
+								dMesgPrint(DEBUG_DEBUG, tempBuffer);
+							}
+
+							dMesgPrint(DEBUG_DEBUG, "\r\n");
+
 						}
-
-						tf_ringbuffer_puts(&uartQueue, "\r\n");
+						break;
 					}
-					break;
-				}
 
+				}
 			}
+
 		}
+
 	}
 }
 
-
-void uartPrintBytes(uint8_t * ptr, uint16_t length)
-{
-	(void) HAL_UART_Transmit_DMA(&hlpuart1, (uint8_t *) ptr, length);
-}
 err_t ethernet_init(struct netif *netif)
 {
 
 	return ERR_OK;
 }
 
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
-{
-	if(huart->Instance == hlpuart1.Instance)
-	{
-		bDMATxFlag = false;
-	}
-}
+
 

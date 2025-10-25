@@ -59,6 +59,7 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define EThernet_INT_Pin GPIO_PIN_15
 #define EThernet_INT_GPIO_Port GPIOF
+#define EThernet_INT_EXTI_IRQn EXTI15_IRQn
 #define Ethernet_CS_Pin GPIO_PIN_14
 #define Ethernet_CS_GPIO_Port GPIOD
 #define LED3_Pin GPIO_PIN_7

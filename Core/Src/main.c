@@ -52,15 +52,34 @@ SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim2;
 
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
+/* Definitions for ledStatus */
+osThreadId_t ledStatusHandle;
+const osThreadAttr_t ledStatus_attributes = {
+  .name = "ledStatus",
+  .priority = (osPriority_t) osPriorityNormal,
+  .stack_size = 128 * 4
+};
+/* Definitions for debugPrint */
+osThreadId_t debugPrintHandle;
+const osThreadAttr_t debugPrint_attributes = {
+  .name = "debugPrint",
+  .priority = (osPriority_t) osPriorityNormal,
+  .stack_size = 256 * 4
+};
+/* Definitions for ipConnect */
+osThreadId_t ipConnectHandle;
+const osThreadAttr_t ipConnect_attributes = {
+  .name = "ipConnect",
   .priority = (osPriority_t) osPriorityNormal,
   .stack_size = 512 * 4
 };
+/* Definitions for debugMsgMutex */
+osMutexId_t debugMsgMutexHandle;
+const osMutexAttr_t debugMsgMutex_attributes = {
+  .name = "debugMsgMutex"
+};
 /* USER CODE BEGIN PV */
-osThreadId_t ipTaskHandle;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -71,7 +90,9 @@ static void MX_ICACHE_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_LPUART1_UART_Init(void);
-void StartDefaultTask(void *argument);
+void ledStatusTask(void *argument);
+extern void debugPrintTask(void *argument);
+extern void ipConnectivityMainTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -122,6 +143,9 @@ int main(void)
 
   /* Init scheduler */
   osKernelInitialize();
+  /* Create the mutex(es) */
+  /* creation of debugMsgMutex */
+  debugMsgMutexHandle = osMutexNew(&debugMsgMutex_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -140,11 +164,16 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  /* creation of ledStatus */
+  ledStatusHandle = osThreadNew(ledStatusTask, NULL, &ledStatus_attributes);
+
+  /* creation of debugPrint */
+  debugPrintHandle = osThreadNew(debugPrintTask, NULL, &debugPrint_attributes);
+
+  /* creation of ipConnect */
+  ipConnectHandle = osThreadNew(ipConnectivityMainTask, NULL, &ipConnect_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  ipTaskHandle = osThreadNew(ipConnectivityMainTask, NULL, &defaultTask_attributes);
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
@@ -271,11 +300,11 @@ static void MX_LPUART1_UART_Init(void)
 
   /* USER CODE END LPUART1_Init 1 */
   hlpuart1.Instance = LPUART1;
-  hlpuart1.Init.BaudRate = 230400;
+  hlpuart1.Init.BaudRate = 921600;
   hlpuart1.Init.WordLength = UART_WORDLENGTH_8B;
   hlpuart1.Init.StopBits = UART_STOPBITS_1;
   hlpuart1.Init.Parity = UART_PARITY_NONE;
-  hlpuart1.Init.Mode = UART_MODE_TX_RX;
+  hlpuart1.Init.Mode = UART_MODE_TX;
   hlpuart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   hlpuart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   hlpuart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
@@ -441,7 +470,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : EThernet_INT_Pin */
   GPIO_InitStruct.Pin = EThernet_INT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(EThernet_INT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : Ethernet_CS_Pin */
@@ -480,22 +509,37 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED2_GPIO_Port, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
+{
+	if(GPIO_Pin == GPIO_PIN_15)
+	{
+		//send a notificationto the task
+		BaseType_t xHigherPriorityTaskWoken;
+		xHigherPriorityTaskWoken = pdFALSE;
+		vTaskNotifyGiveFromISR((TaskHandle_t)  ipConnectHandle, &xHigherPriorityTaskWoken);
+		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+	}
 
+}
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_StartDefaultTask */
+/* USER CODE BEGIN Header_ledStatusTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
+  * @brief  Function implementing the ledStatus thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
+/* USER CODE END Header_ledStatusTask */
+void ledStatusTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
 
