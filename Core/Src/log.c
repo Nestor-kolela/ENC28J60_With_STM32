@@ -59,8 +59,7 @@ void dMesgPrint(uint8_t debugLevel, const char *format, ...)
         va_end(args);
 
         if (len > 0 && len < sizeof(buffer)) {
-            int final_len = snprintf(final_buffer, sizeof(final_buffer),
-                                   "%s%s%s", color_code, buffer, COLOR_RESET);
+            int final_len = snprintf(final_buffer, sizeof(final_buffer), "%s%s%s", color_code, buffer, COLOR_RESET);
             if (final_len > 0 && final_len < sizeof(final_buffer)) {
                 HAL_UART_Transmit(&hlpuart1, (uint8_t *)final_buffer, final_len, 100);
             }

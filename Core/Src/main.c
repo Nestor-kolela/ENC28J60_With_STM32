@@ -522,7 +522,7 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 {
 	if(GPIO_Pin == GPIO_PIN_15)
 	{
-		//send a notificationto the task
+		//send a notification to the task
 		BaseType_t xHigherPriorityTaskWoken;
 		xHigherPriorityTaskWoken = pdFALSE;
 		vTaskNotifyGiveFromISR((TaskHandle_t)  ipConnectHandle, &xHigherPriorityTaskWoken);
@@ -549,7 +549,6 @@ void ledStatusTask(void *argument)
 	  vTaskDelay(100 / portTICK_PERIOD_MS);
 	  HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
 	  HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
-	  HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
   }
   /* USER CODE END 5 */
 }
