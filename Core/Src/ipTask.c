@@ -124,6 +124,9 @@ void ipConnectivityMainTask(void *argument)
 
 						bool err;
 						err = enc28j60_etherReceive(&dev, u8TempValue, 0);
+
+						enc28j60_BitFieldSet(&dev, dev.bank0.commonRegs.EIE, 1 << 7);
+
 						if (err == true) {
 							//Packet number
 							dMesgPrint(DEBUG_INFO, "PKT number %d\r\n", u32PacketCounter++);
@@ -131,6 +134,7 @@ void ipConnectivityMainTask(void *argument)
 							//Packet length
 							dMesgPrint(DEBUG_INFO, "PKT length %d\r\n", dev.rxPkt.pktLen.u16PktLen);
 
+#if 0
 							char tempBuffer[10];
 							for (uint16_t i = 0; i < dev.rxPkt.pktLen.u16PktLen; i++) {
 								uint8_t u8ReadData = dev.rxPkt.data[i];
@@ -139,6 +143,7 @@ void ipConnectivityMainTask(void *argument)
 								dMesgPrint(DEBUG_DEBUG, "%02X ", u8ReadData);
 								dMesgPrint(DEBUG_DEBUG, tempBuffer);
 							}
+#endif
 
 							dMesgPrint(DEBUG_DEBUG, "\r\n");
 

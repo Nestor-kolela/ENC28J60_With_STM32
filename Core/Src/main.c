@@ -26,6 +26,8 @@
 #include "lwip/netif.h"
 #include "netif/ethernet.h"
 #include "ipTask.h"
+#include "FreeRTOS.h"
+#include "semphr.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -174,6 +176,7 @@ int main(void)
   ipConnectHandle = osThreadNew(ipConnectivityMainTask, NULL, &ipConnect_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
+  xSemaphoreGive(debugMsgMutexHandle);
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
