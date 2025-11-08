@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "enc28j60_hwd.h"
+#include "log.h"
 
 static void enc28j60_SoftReset(enc28j60Drv * dev);
 static void enc28j60_writeReg(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8Value);
@@ -227,6 +228,7 @@ bool enc28j60_etherTransmit(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16
 
 bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t length)
 {
+	bool bReturnValue = true;
 	//Write to the lock mechanism to prevent overwriting to the unread places
 	addrPtr currentAddr;
 	currentAddr.ptrLo = dev->rxPkt.ptrAddr.ptrLo;
@@ -264,8 +266,16 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 	//Start reading the actual data
 	//The next packet pointer is saved, then used in the next interrupt
 	(void) dev->spi.fncPtrRead(dev->rxPkt.nxtPktAddr, 2);
-	dev->rxPkt.ptrAddr.ptrLo = *(dev->rxPkt.nxtPktAddr);
-	dev->rxPkt.ptrAddr.ptrHi = *(dev->rxPkt.nxtPktAddr + 1);
+	dev->rxPkt.ptrAddr.u16Ptr = *(dev->rxPkt.nxtPktAddr + 0);
+	dev->rxPkt.ptrAddr.u16Ptr |= *(dev->rxPkt.nxtPktAddr + 1) << 8;
+
+	if(dev->rxPkt.ptrAddr.u16Ptr >= 8192)
+	{
+		dMesgPrint(DEBUG_ERROR, "Address can never be greater than 8192\r\n");
+		bReturnValue = false;
+	}
+
+	dMesgPrint(DEBUG_INFO, "Next Point address --> %d\r\n", ((dev->rxPkt.ptrAddr.ptrHi << 8) | dev->rxPkt.ptrAddr.ptrLo));
 
 	//Get the receive status vector
 	(void) dev->spi.fncPtrRead(dev->rxPkt.rxStatVect, 4);
@@ -274,21 +284,82 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 	dev->rxPkt.pktLen.u16PktLen = *(dev->rxPkt.rxStatVect);
 	dev->rxPkt.pktLen.u16PktLen |= *(dev->rxPkt.rxStatVect + 1) << 8;
 
-	(void) *(dev->rxPkt.rxStatVect + 2);
-	(void) *(dev->rxPkt.rxStatVect + 3);
+	uint16_t u16Flags = *(dev->rxPkt.rxStatVect + 2);
+	u16Flags |= *(dev->rxPkt.rxStatVect + 3) << 8;
 
+	for(uint8_t i = 0; i < 16; i++)
+	{
+		if(u16Flags & (1 << i))
+		{
+			switch(i)
+			{
+			default:
+				break;
+			case 0:
+				dMesgPrint(DEBUG_INFO, "ETH --> Long Event/Drop Event\r\n");
+				break;
+			case 2:
+				dMesgPrint(DEBUG_INFO, "ETH --> Carrier Event Previously Seen\r\n");
+				break;
+			case 4:
+				dMesgPrint(DEBUG_ERROR, "ETH --> CRC Error\r\n");
+				break;
+			case 5:
+				dMesgPrint(DEBUG_ERROR, "ETH --> Length Check Error\r\n");
+				break;
+			case 6:
+				dMesgPrint(DEBUG_ERROR, "ETH --> Length out of range\r\n");
+				break;
+			case 7:
+				dMesgPrint(DEBUG_INFO, "ETH --> RX OK\r\n");
+				break;
+			case 8:
+				dMesgPrint(DEBUG_INFO, "ETH --> RX Multi-cast PKT\r\n");
+				break;
+			case 9:
+				dMesgPrint(DEBUG_INFO, "ETH --> RX Broadcast PKT\r\n");
+				break;
+			case 10:
+				dMesgPrint(DEBUG_INFO, "ETH --> Dribble Nibble\r\n");
+				break;
+			case 11:
+				dMesgPrint(DEBUG_INFO, "ETH --> RX Control Frame\r\n");
+				break;
+			case 12:
+				dMesgPrint(DEBUG_INFO, "ETH --> RX Pause Control Frame\r\n");
+				break;
+			case 13:
+				dMesgPrint(DEBUG_INFO, "ETH --> RX unknown opcode\r\n");
+				break;
+			case 14:
+				dMesgPrint(DEBUG_INFO, "ETH --> RX VLAN Type Detected\r\n");
+				break;
+			}
+		}
+	}
+
+	if(dev->rxPkt.pktLen.u16PktLen == 0)
+	{
+		for(uint8_t i = 0; i < 4; i++)
+		{
+			dMesgPrint(DEBUG_ERROR, "Status vector registers %d: %d\r\n", i, *(dev->rxPkt.rxStatVect + i));
+		}
+
+		dMesgPrint(DEBUG_ERROR, "The packet length can never be 0\r\n");
+		bReturnValue = false;
+	}
 	dev->rxPkt.pktLen.u16PktLen -= 4;
 
 	if(dev->rxPkt.pktLen.u16PktLen >= 1518)
 	{
 		//The length can never be 65535, right?
+		for(uint8_t i = 0; i < 4; i++)
+		{
+			dMesgPrint(DEBUG_ERROR, "Status vector registers %d: %d\r\n", i, *(dev->rxPkt.rxStatVect + i));
+		}
+		dMesgPrint(DEBUG_ERROR, "Packet length is probably the result of (0 - 4) which is wrong 0\r\n");
 		dev->rxPkt.pktLen.u16PktLen = 0;
-		//We are done
-		dev->spi.fncPtrChipDS();
-
-		volatile uint16_t u18pointerAfter = (enc28j60_readEtherReg(dev, dev->bank0.ERXRDPTH) << 0x08);
-		u18pointerAfter |= (enc28j60_readEtherReg(dev, dev->bank0.ERXRDPTL));
-		return false;
+		bReturnValue = false;
 	}
 
 	//There is data available from here.
@@ -297,10 +368,10 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 	//We are done
 	dev->spi.fncPtrChipDS();
 
-	//Clear the flag
+	//Clear the flag for interrupts.
 	enc28j60_BitFieldSet(dev, dev->bank0.commonRegs.ECON2, (1 << 6));
 
-	return true;
+	return bReturnValue;
 }
 
 static void enc28j60_rxSetFilters(enc28j60Drv * dev, rx_filter_control filter)
