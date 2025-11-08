@@ -21,8 +21,8 @@
 extern osMutexId_t debugMsgMutexHandle;
 extern UART_HandleTypeDef hlpuart1;
 
-static char buffer[1024];
-static char final_buffer[1024];
+static char buffer[2048];
+static char final_buffer[2048];
 
 
 // Add these color definitions at the top of your file
@@ -40,7 +40,7 @@ static char final_buffer[1024];
 void dMesgPrint(uint8_t debugLevel, const char *format, ...)
 {
     BaseType_t xStatus;
-    xStatus = xSemaphoreTake(debugMsgMutexHandle, 50 / portTICK_PERIOD_MS);
+    xStatus = xSemaphoreTake(debugMsgMutexHandle, pdMS_TO_TICKS(50));
     if(xStatus == pdPASS)
     {
         const char * color_code = COLOR_WHITE;
@@ -59,10 +59,9 @@ void dMesgPrint(uint8_t debugLevel, const char *format, ...)
         va_end(args);
 
         if (len > 0 && len < sizeof(buffer)) {
-            int final_len = snprintf(final_buffer, sizeof(final_buffer),
-                                   "%s%s%s", color_code, buffer, COLOR_RESET);
+            int final_len = snprintf(final_buffer, sizeof(final_buffer), "%s%s%s", color_code, buffer, COLOR_RESET);
             if (final_len > 0 && final_len < sizeof(final_buffer)) {
-                HAL_UART_Transmit(&hlpuart1, (uint8_t *)final_buffer, final_len, 100);
+                HAL_UART_Transmit(&hlpuart1, (uint8_t *) final_buffer, final_len, 1000);
             }
         }
 
