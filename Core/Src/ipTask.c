@@ -1,7 +1,7 @@
 /*
  * ipTask.c
  *
- *  Created on: Feb 13, 2025
+ *  Created on: February 13, 2025
  *      Author: NK KALAMBAY
  */
 
@@ -16,6 +16,8 @@
 #include "lwip/netif.h"
 
 #include "netif/ethernet.h"
+#include "lwip/dhcp.h"
+#include "lwip/dns.h"
 
 #include "enc28j60_hwd.h"
 #include "spiHwdInterface.h"
@@ -29,10 +31,10 @@ struct netif my_netif;
 ip4_addr_t ipaddr, netmask, gw;
 
 err_t ethernet_init(struct netif *netif);
+void ethernet_do_translation_to_pbub(enc28j60Drv * dev, struct pbuf *p);
 
 extern enc28j60Drv dev;
 extern osMessageQueueId_t qDebugPrintHandle;
-
 
 static uint32_t u32PacketCounter = 0;
 static uint8_t u8TempValue[10];
@@ -67,6 +69,7 @@ void ipConnectivityMainTask(void *argument)
 	u8PktCount = 0;
 	enc28j60State = enc28j60_state_running;
 
+	lwip_init();
 
 	while(true)
 	{
@@ -125,6 +128,7 @@ void ipConnectivityMainTask(void *argument)
 						bool err;
 						err = enc28j60_etherReceive(&dev, u8TempValue, 0);
 
+						//Clear the interrupt bit.
 						enc28j60_BitFieldSet(&dev, dev.bank0.commonRegs.EIE, 1 << 7);
 
 						if (err == true) {
@@ -134,63 +138,37 @@ void ipConnectivityMainTask(void *argument)
 							//Packet length
 							dMesgPrint(DEBUG_INFO, "PKT length %d\r\n", dev.rxPkt.pktLen.u16PktLen);
 
-#if 0
-							char tempBuffer[10];
-							for (uint16_t i = 0; i < dev.rxPkt.pktLen.u16PktLen; i++) {
-								uint8_t u8ReadData = dev.rxPkt.data[i];
-
-								if ((i != 0) && ((i % 16) == 0)) dMesgPrint(DEBUG_DEBUG, "\r\n");
-								dMesgPrint(DEBUG_DEBUG, "%02X ", u8ReadData);
-								dMesgPrint(DEBUG_DEBUG, tempBuffer);
+							//Let do the translation from array to pbuf
+							uint16_t u18length = dev.rxPkt.pktLen.u16PktLen;
+							struct pbuf * ethBuffer = pbuf_alloc(PBUF_LINK, u18length, PBUF_REF);
+							if(ethBuffer != NULL)
+							{
+								ethernet_do_translation_to_pbub(&dev, ethBuffer);
+								netif_input(ethBuffer, &my_netif);
 							}
-#endif
-
-							dMesgPrint(DEBUG_DEBUG, "\r\n");
-
+						}else
+						{
+							dMesgPrint(DEBUG_ERROR, "RX return false!\r\n");
 						}
 						break;
 					}
 				}
 			}
 		}
-#if 0
-		switch (enc28j60State) {
-		case enc28j60_state_init:
-			break;
-		case enc28j60_state_running:
-			//Print the up-time as well
-			break;
-		case enc28j60_state_error:
-			enc28j60_BitFieldClear(&dev, dev.bank0.commonRegs.EIR, 1 << 0);
-			enc28j60_BitFieldSet(&dev, dev.bank0.commonRegs.EIE, 1 << 7);
-			enc28j60_strtDr(&dev);
-
-			// Add network interface
-			netif_add_noaddr(&my_netif, NULL, ethernet_init, ethernet_input);
-
-			// Set the interface as the default
-			netif_set_default(&my_netif);
-
-			// Bring up the interface
-			netif_set_up(&my_netif);
-
-			ulEventsToProcess = 0;
-			u8Value = 0;
-			u8PktCount = 0;
-
-			enc28j60State = enc28j60_state_running;
-			dMesgPrint(DEBUG_ERROR, "We are restarting the Ethernet controller"); //
-			break;
-		}
-#endif
 	}
 }
 
 err_t ethernet_init(struct netif *netif)
 {
-
+	netif->flags |= NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_ETHERNET | NETIF_FLAG_IGMP | NETIF_FLAG_LINK_UP;
 	return ERR_OK;
 }
 
-
-
+void ethernet_do_translation_to_pbub(enc28j60Drv * dev, struct pbuf *p)
+{
+	p->next = NULL;
+	p->len = dev->rxPkt.pktLen.u16PktLen;
+	p->payload = dev->rxPkt.data;
+	memcpy((uint8_t *) p->payload, dev->rxPkt.data, dev->rxPkt.pktLen.u16PktLen);
+	p->ref = 1;
+}

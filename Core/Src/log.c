@@ -68,24 +68,26 @@ void dMesgPrint(uint8_t debugLevel, const char *format, ...)
         xSemaphoreGive(debugMsgMutexHandle);
     }
 }
-
-#if 0
-void dMesgPrint(uint8_t debugLevel, const char *format, ...)
+void dMesgPrintLwIp(const char *__restrict format, ...)
 {
     BaseType_t xStatus;
-    xStatus = xSemaphoreTake(debugMsgMutexHandle, 50 / portTICK_PERIOD_MS);
+    xStatus = xSemaphoreTake(debugMsgMutexHandle, pdMS_TO_TICKS(50));
     if(xStatus == pdPASS)
     {
+        const char * color_code = COLOR_CYAN;
+
         va_list args;
         va_start(args, format);
         int len = vsnprintf(buffer, sizeof(buffer), format, args);
         va_end(args);
 
         if (len > 0 && len < sizeof(buffer)) {
-            HAL_UART_Transmit(&hlpuart1, (uint8_t *)buffer, len, 100);
+            int final_len = snprintf(final_buffer, sizeof(final_buffer), "%s%s%s\r\n", color_code, buffer, COLOR_RESET);
+            if (final_len > 0 && final_len < sizeof(final_buffer)) {
+                HAL_UART_Transmit(&hlpuart1, (uint8_t *) final_buffer, final_len, 1000);
+            }
         }
 
         xSemaphoreGive(debugMsgMutexHandle);
     }
 }
-#endif

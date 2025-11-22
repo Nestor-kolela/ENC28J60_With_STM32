@@ -47,7 +47,7 @@
 
 //#include "arch/cc.h"
 #include "arch.h"
-
+#include "log.h"
 /**
  * @defgroup compiler_abstraction Compiler/platform abstraction
  * @ingroup sys_layer
@@ -78,8 +78,13 @@
  * in turn pull in a lot of standard library code. In resource-constrained
  * systems, this should be defined to something less resource-consuming.
  */
+
+
+
+
 #ifndef LWIP_PLATFORM_DIAG
-#define LWIP_PLATFORM_DIAG(x) do {printf x;} while(0)
+#define LWIP_PLATFORM_DIAG(x) do{dMesgPrintLwIp x;} while(0)
+//do {printf x;} while(0)
 #include <stdio.h>
 #include <stdlib.h>
 #endif
@@ -90,8 +95,10 @@
  * systems, this should be defined to something less resource-consuming.
  */
 #ifndef LWIP_PLATFORM_ASSERT
-#define LWIP_PLATFORM_ASSERT(x) do {printf("Assertion \"%s\" failed at line %d in %s\n", \
-                                     x, __LINE__, __FILE__); fflush(NULL); abort();} while(0)
+#define LWIP_PLATFORM_ASSERT(x) do {dMesgPrint(DEBUG_ERROR, "Assertion \"%s\" failed at line %d in %s\n", \
+		x, __LINE__, __FILE__); fflush(NULL); abort();} while(0)
+
+/*do {printf("Assertion \"%s\" failed at line %d in %s\n", x, __LINE__, __FILE__); fflush(NULL); abort();} while(0) */
 #include <stdio.h>
 #include <stdlib.h>
 #endif
@@ -148,7 +155,7 @@ typedef uintptr_t mem_ptr_t;
 #if !LWIP_NO_INTTYPES_H
 #include <inttypes.h>
 #ifndef X8_F
-#define X8_F  "02" PRIx8
+#define X8_F  "02X" //"02" PRIx8
 #endif
 #ifndef U16_F
 #define U16_F PRIu16
@@ -157,7 +164,7 @@ typedef uintptr_t mem_ptr_t;
 #define S16_F PRId16
 #endif
 #ifndef X16_F
-#define X16_F PRIx16
+#define X16_F "02X" // PRIx16
 #endif
 #ifndef U32_F
 #define U32_F PRIu32

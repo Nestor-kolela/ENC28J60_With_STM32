@@ -223,6 +223,7 @@ void enc28j60_sftRst(enc28j60Drv * dev)
 
 bool enc28j60_etherTransmit(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t length)
 {
+
 	return true;
 }
 
@@ -377,7 +378,7 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 static void enc28j60_rxSetFilters(enc28j60Drv * dev, rx_filter_control filter)
 {
 #warning "here change"
-	uint8_t u8CastValue = (uint8_t) 0;
+	uint8_t u8CastValue = (uint8_t) filter;
 	enc28j60_writeReg(dev, dev->bank1.ERXFCON, u8CastValue);
 }
 
