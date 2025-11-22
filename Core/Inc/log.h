@@ -20,5 +20,6 @@
 
 
 void dMesgPrint(uint8_t debugLevel, const char *format, ...);
+void dMesgPrintLwIp(const char *__restrict x, ...);
 
 #endif /* INC_LOG_H_ */
