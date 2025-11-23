@@ -28,16 +28,24 @@
 #include "ipTask.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
+#include "lwip/dhcp.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef void (*ptrMillisCallBack)(void);
+typedef struct timer
+{
+	struct timer * next;
+	volatile uint32_t u32milliseconds;
+	volatile uint32_t u32MaxValue;
+	ptrMillisCallBack callback;
+}timer_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define MAX_TIMERS	10
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -75,10 +83,22 @@ const osThreadAttr_t ipConnect_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
   .stack_size = 512 * 4
 };
+/* Definitions for ipTransmit */
+osThreadId_t ipTransmitHandle;
+const osThreadAttr_t ipTransmit_attributes = {
+  .name = "ipTransmit",
+  .priority = (osPriority_t) osPriorityNormal,
+  .stack_size = 512 * 4
+};
 /* Definitions for debugMsgMutex */
 osMutexId_t debugMsgMutexHandle;
 const osMutexAttr_t debugMsgMutex_attributes = {
   .name = "debugMsgMutex"
+};
+/* Definitions for enc28j60Mutex */
+osMutexId_t enc28j60MutexHandle;
+const osMutexAttr_t enc28j60Mutex_attributes = {
+  .name = "enc28j60Mutex"
 };
 /* USER CODE BEGIN PV */
 
@@ -95,6 +115,22 @@ static void MX_LPUART1_UART_Init(void);
 void ledStatusTask(void *argument);
 extern void debugPrintTask(void *argument);
 extern void ipConnectivityMainTask(void *argument);
+extern void ipTransmitTask(void *argument);
+
+
+timer_t timer_pool[MAX_TIMERS];
+uint8_t timer_pool_index = 0;
+timer_t* timer_list_head = NULL;
+timer_t* create_timer(uint32_t max_value, ptrMillisCallBack cb);
+void add_timer_to_list(timer_t** head, timer_t* new_timer);
+void process_timers(timer_t* head);
+
+void led_toggle_callback(void)
+{
+	HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
+}
+
+timer_t* timer_list = NULL;
 
 /* USER CODE BEGIN PFP */
 
@@ -140,7 +176,19 @@ int main(void)
   MX_TIM2_Init();
   MX_LPUART1_UART_Init();
   /* USER CODE BEGIN 2 */
+
+  //Add timers to the interrupt service handler.
+  timer_t * timer_dhcp_fine_tmr = create_timer(500, dhcp_fine_tmr);
+  timer_t * timer_dhcp_coarse_tmr = create_timer(60000, dhcp_coarse_tmr);
+  timer_t * timer_led = create_timer(100, led_toggle_callback);
+
+  // Add to linked list
+  add_timer_to_list(&timer_list, timer_dhcp_fine_tmr);
+  add_timer_to_list(&timer_list, timer_dhcp_coarse_tmr);
+  add_timer_to_list(&timer_list, timer_led);
+
   HAL_TIM_Base_Start_IT(&htim2);
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -148,6 +196,9 @@ int main(void)
   /* Create the mutex(es) */
   /* creation of debugMsgMutex */
   debugMsgMutexHandle = osMutexNew(&debugMsgMutex_attributes);
+
+  /* creation of enc28j60Mutex */
+  enc28j60MutexHandle = osMutexNew(&enc28j60Mutex_attributes);
 
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
@@ -174,6 +225,9 @@ int main(void)
 
   /* creation of ipConnect */
   ipConnectHandle = osThreadNew(ipConnectivityMainTask, NULL, &ipConnect_attributes);
+
+  /* creation of ipTransmit */
+  ipTransmitHandle = osThreadNew(ipTransmitTask, NULL, &ipTransmit_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   xSemaphoreGive(debugMsgMutexHandle);
@@ -533,6 +587,62 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
 	}
 
 }
+
+timer_t* create_timer(uint32_t max_value, ptrMillisCallBack cb)
+{
+    if(timer_pool_index >= MAX_TIMERS || cb == NULL)
+        return NULL;
+
+    timer_t* new_timer = &timer_pool[timer_pool_index++];
+    new_timer->u32milliseconds = 0;
+    new_timer->u32MaxValue = max_value;
+    new_timer->callback = cb;
+    new_timer->next = NULL;
+
+    return new_timer;
+}
+
+void add_timer_to_list(timer_t** head, timer_t* new_timer)
+{
+    if(new_timer == NULL) return;
+
+    new_timer->next = *head;
+    *head = new_timer;
+}
+
+
+// SAFE process_timers - with protection against circular lists
+void process_timers(timer_t* head)
+{
+    timer_t* current = head;
+    uint8_t safety_counter = 0;
+    const uint8_t MAX_ITERATIONS = MAX_TIMERS * 2; // Safety limit
+
+    while(current != NULL && safety_counter < MAX_ITERATIONS)
+    {
+        safety_counter++;
+
+        if(current->callback != NULL) // Check for valid callback
+        {
+            current->u32milliseconds++;
+            if(current->u32milliseconds >= current->u32MaxValue)
+            {
+                current->callback();  // Execute callback
+                current->u32milliseconds = 0;  // Reset timer
+            }
+        }
+
+        current = current->next;
+    }
+
+    // If we hit the safety limit, there's likely a circular list
+    if(safety_counter >= MAX_ITERATIONS)
+    {
+        // Handle error - reset timer list or take corrective action
+        timer_list_head = NULL;
+        timer_pool_index = 0;
+    }
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_ledStatusTask */
@@ -578,6 +688,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   {
 	  extern volatile uint32_t u32milliSeconds;
 	  u32milliSeconds++;
+
+	  process_timers(timer_list);
   }
 
   /* USER CODE END Callback 1 */

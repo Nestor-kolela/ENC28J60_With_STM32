@@ -110,4 +110,3 @@
 #endif /*__LWIPOPTS__H__ */
 
 /************************* (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
-
