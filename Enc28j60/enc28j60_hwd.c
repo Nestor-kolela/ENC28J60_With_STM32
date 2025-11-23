@@ -1,14 +1,17 @@
 /*
  * enc28j60_hwd.c
  *
- *  Created on: Feb 8, 2025
- *      Author:  NK Kalambay
+ *  Created on: February 8, 2025
+ *      Author:  NK KALAMBAY
  */
 
 #include <stdint.h>
 #include <stdio.h>
 #include "enc28j60_hwd.h"
 #include "log.h"
+
+
+static uint8_t const mac[6] = {0xEE, 0x6A, 0xAF, 0x16, 0x7C, 0x04};
 
 static void enc28j60_SoftReset(enc28j60Drv * dev);
 static void enc28j60_writeReg(enc28j60Drv * dev, uint8_t u8Reg, uint8_t u8Value);
@@ -23,6 +26,7 @@ static void enc28j60_writePhyReg(enc28j60Drv * dev, uint8_t addr, uint16_t data)
 static uint16_t enc28j60_getPhyPartNumber(enc28j60Drv * dev);
 //static uint8_t enc28j60_getPhyRevNumber(enc28j60Drv * dev);
 static uint32_t enc28j60_getPhyIdentifier(enc28j60Drv * dev);
+#if 0
 static bool enc28j60_getPhylinkHasBeenDown(enc28j60Drv * dev);
 static bool enc28j60_getPhyjabberStatusBit(enc28j60Drv * dev);
 static bool enc28j60_getPhyPolarityStatus(enc28j60Drv * dev);
@@ -31,10 +35,11 @@ static bool enc28j60_getPhyLinkStatus(enc28j60Drv * dev);
 static bool enc28j60_getPhyCollisionStatus(enc28j60Drv * dev);
 static bool enc28j60_getPhyIsRxStatus(enc28j60Drv * dev);
 static bool enc28j60_getPhyIsTxStatus(enc28j60Drv * dev);
+
+#endif
 static void enc2860_phyInit(enc28j60Drv * dev);
 static void enc2860_macInit(enc28j60Drv * dev);
 static void enc28j60_rxSetFilters(enc28j60Drv * dev, rx_filter_control filter);
-
 
 static encj28j60_bank convertRegValToBank(uint8_t value);
 static uint8_t convertBankToBits(encj28j60_bank bBank);
@@ -148,12 +153,12 @@ static void enc2860_macInit(enc28j60Drv * dev)
 	enc28j60_writeReg(dev, dev->bank2.MAMXFLL, dev->MxmPkSize.u8ValLo);
 	enc28j60_writeReg(dev, dev->bank2.MAMXFLH, dev->MxmPkSize.u8ValHi);
 
-	enc28j60_writeReg(dev, dev->bank3.MAADR0, 0xEE);
-	enc28j60_writeReg(dev, dev->bank3.MAADR1, 0x6A);
-	enc28j60_writeReg(dev, dev->bank3.MAADR2, 0xAF);
-	enc28j60_writeReg(dev, dev->bank3.MAADR3, 0x16);
-	enc28j60_writeReg(dev, dev->bank3.MAADR4, 0x7C);
-	enc28j60_writeReg(dev, dev->bank3.MAADR5, 0x04);
+	enc28j60_writeReg(dev, dev->bank3.MAADR0, dev->mac.u8Mac0);
+	enc28j60_writeReg(dev, dev->bank3.MAADR1, dev->mac.u8Mac1);
+	enc28j60_writeReg(dev, dev->bank3.MAADR2, dev->mac.u8Mac2);
+	enc28j60_writeReg(dev, dev->bank3.MAADR3, dev->mac.u8Mac3);
+	enc28j60_writeReg(dev, dev->bank3.MAADR4, dev->mac.u8Mac4);
+	enc28j60_writeReg(dev, dev->bank3.MAADR5, dev->mac.u8Mac5);
 
 }
 
@@ -223,6 +228,42 @@ void enc28j60_sftRst(enc28j60Drv * dev)
 
 bool enc28j60_etherTransmit(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t length)
 {
+	//1) Start by writing to the initial address.
+	enc28j60_writeReg(dev, dev->bank0.ETXSTH, (uint8_t)(dev->txBufStartAddr.u16Val & 0xFF00) >> 0x08);
+	enc28j60_writeReg(dev, dev->bank0.ETXSTL, (uint8_t)(dev->txBufStartAddr.u16Val & 0x00FF));
+
+	//Start loading the data into the buffer.
+	dev->spi.fncPtrCS();
+
+	//2) Send WBM SPI command to write per control byte
+	uint8_t u8Command = dev->opcode.u8WriteBufferMemory;
+	//Send command to read buffer memory
+	dev->spi.fncPtrWrite(&u8Command, 1);
+
+	dev->txPkt.txPktLen.u16PktLen = length;
+	uint8_t u8ControlByte = 0x00;
+	dev->spi.fncPtrWrite(&u8ControlByte, 1);
+	dev->spi.fncPtrWrite(u8PtrData, length);
+
+	//Add one byte for the control byte
+	dev->txPkt.txPktLen.u16PktLen += 1;
+
+	// Then program the EXTND pointer
+	enc28j60_writeReg(dev, dev->bank0.ETXNDH, (uint8_t)((dev->txPkt.txPktLen.u16PktLen & 0xFF00) >> 0x08));
+	enc28j60_writeReg(dev, dev->bank0.ETXNDL, (uint8_t)(dev->txPkt.txPktLen.u16PktLen & 0x00FF));
+
+	// Clear EIR.TXIF
+	enc28j60_BitFieldClear(dev, dev->bank0.commonRegs.EIR, 1 << 3);
+
+	// Set TXIE and INTIE for interrupt
+	enc28j60_BitFieldSet(dev, dev->bank0.commonRegs.EIE, 1 << 3);
+	//Global interrupt as well.
+	enc28j60_BitFieldSet(dev, dev->bank0.commonRegs.EIE, 1 << 7);
+
+	// Start Transmission by setting TXRST found in ECON1.
+	enc28j60_BitFieldSet(dev, dev->bank0.commonRegs.ECON1, 1 << 3);
+
+	dev->spi.fncPtrChipDS();
 
 	return true;
 }
@@ -282,8 +323,8 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 	(void) dev->spi.fncPtrRead(dev->rxPkt.rxStatVect, 4);
 
 	//For now we compute the length of the packet manually instead of using c-structs
-	dev->rxPkt.pktLen.u16PktLen = *(dev->rxPkt.rxStatVect);
-	dev->rxPkt.pktLen.u16PktLen |= *(dev->rxPkt.rxStatVect + 1) << 8;
+	dev->rxPkt.rxPktLen.u16PktLen = *(dev->rxPkt.rxStatVect);
+	dev->rxPkt.rxPktLen.u16PktLen |= *(dev->rxPkt.rxStatVect + 1) << 8;
 
 	uint16_t u16Flags = *(dev->rxPkt.rxStatVect + 2);
 	u16Flags |= *(dev->rxPkt.rxStatVect + 3) << 8;
@@ -339,7 +380,7 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 		}
 	}
 
-	if(dev->rxPkt.pktLen.u16PktLen == 0)
+	if(dev->rxPkt.rxPktLen.u16PktLen == 0)
 	{
 		for(uint8_t i = 0; i < 4; i++)
 		{
@@ -349,9 +390,9 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 		dMesgPrint(DEBUG_ERROR, "The packet length can never be 0\r\n");
 		bReturnValue = false;
 	}
-	dev->rxPkt.pktLen.u16PktLen -= 4;
+	dev->rxPkt.rxPktLen.u16PktLen -= 4;
 
-	if(dev->rxPkt.pktLen.u16PktLen >= 1518)
+	if(dev->rxPkt.rxPktLen.u16PktLen >= 1518)
 	{
 		//The length can never be 65535, right?
 		for(uint8_t i = 0; i < 4; i++)
@@ -359,12 +400,12 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 			dMesgPrint(DEBUG_ERROR, "Status vector registers %d: %d\r\n", i, *(dev->rxPkt.rxStatVect + i));
 		}
 		dMesgPrint(DEBUG_ERROR, "Packet length is probably the result of (0 - 4) which is wrong 0\r\n");
-		dev->rxPkt.pktLen.u16PktLen = 0;
+		dev->rxPkt.rxPktLen.u16PktLen = 0;
 		bReturnValue = false;
 	}
 
 	//There is data available from here.
-	dev->spi.fncPtrRead(dev->rxPkt.data, dev->rxPkt.pktLen.u16PktLen);
+	dev->spi.fncPtrRead(dev->rxPkt.data, dev->rxPkt.rxPktLen.u16PktLen);
 
 	//We are done
 	dev->spi.fncPtrChipDS();
@@ -377,7 +418,6 @@ bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_
 
 static void enc28j60_rxSetFilters(enc28j60Drv * dev, rx_filter_control filter)
 {
-#warning "here change"
 	uint8_t u8CastValue = (uint8_t) filter;
 	enc28j60_writeReg(dev, dev->bank1.ERXFCON, u8CastValue);
 }
@@ -584,6 +624,7 @@ static uint32_t enc28j60_getPhyIdentifier(enc28j60Drv * dev)
 	return u32returnValue;
 }
 
+#if 0
 static bool enc28j60_getPhylinkHasBeenDown(enc28j60Drv * dev)
 {
 	uint16_t u16returnValue;
@@ -639,9 +680,17 @@ static bool enc28j60_getPhyIsTxStatus(enc28j60Drv * dev)
 	u16returnValue = enc28j60_readPhyReg(dev, dev->phyReg.PHSTAT2);
 	return (u16returnValue & (1 << 13));
 }
+#endif
 
 enc28j60Drv dev =
 {
+	//1) SPi Driver functions
+	.spi 					= { .fncPtrCS = NULL, .fncPtrChipDS = NULL, .fncPtrWrite = NULL, .fncPtrRead = NULL},
+	//2) Call back function
+	.fncPtrcallBack			= NULL,
+	//3) Delay function call back
+	.fncPtrDelayFunc		= NULL,
+	//4) Bank 0 constant definitions. 
 	.bank0 = 
 	{
 		.ERDPTL				= BANK_0 | 0x00,
@@ -671,13 +720,15 @@ enc28j60Drv dev =
 		.undefined1			= BANK_0 | 0x18,
 		.undefined2			= BANK_0 | 0x19,
 		.Reversed1			= BANK_0 | 0x1A,
-		.commonRegs.EIE 	= BANK_0 | 0x1B,
-		.commonRegs.EIR 	= BANK_0 | 0x1C,
-		.commonRegs.ESTAT	= BANK_0 | 0x1D,
-		.commonRegs.ECON2 	= BANK_0 | 0x1E,
-		.commonRegs.ECON1	= BANK_0 | 0x1F
+		.commonRegs			= {
+			.EIE		 	= BANK_0 | 0x1B,
+			.EIR 			= BANK_0 | 0x1C,
+			.ESTAT			= BANK_0 | 0x1D,
+			.ECON2 			= BANK_0 | 0x1E,
+			.ECON1			= BANK_0 | 0x1F
+		}
 	},
-
+	//5) Bank 1 constant definitions.
 	.bank1 = 
 	{
 		.EHT0				= BANK_1 | 0x00,
@@ -707,13 +758,15 @@ enc28j60Drv dev =
 		.ERXFCON			= BANK_1 | 0x18,
 		.EPKTCNT			= BANK_1 | 0x19,
 		.Reserved1			= BANK_1 | 0x1A,
-		.commonRegs.EIE 	= BANK_1 | 0x1B,
-		.commonRegs.EIR 	= BANK_1 | 0x1C,
-		.commonRegs.ESTAT	= BANK_1 | 0x1D,
-		.commonRegs.ECON2 	= BANK_1 | 0x1E,
-		.commonRegs.ECON1	= BANK_1 | 0x1F
+		.commonRegs			= {
+			.EIE	 		= BANK_1 | 0x1B,
+			.EIR 			= BANK_1 | 0x1C,
+			.ESTAT			= BANK_1 | 0x1D,
+			.ECON2 			= BANK_1 | 0x1E,
+			.ECON1			= BANK_1 | 0x1F
+		}
 	},
-
+	//6) Bank 2 constant definitions.
 	.bank2 = 
 	{
 		.MACON1				= BANK_2 | 0x00,
@@ -743,13 +796,15 @@ enc28j60Drv dev =
 		.MIRDL				= BANK_2 | 0x18,
 		.MIRDH				= BANK_2 | 0x19,
 		.Reserved5			= BANK_2 | 0x1A,
-		.commonRegs.EIE 	= BANK_2 | 0x1B,
-		.commonRegs.EIR 	= BANK_2 | 0x1C,
-		.commonRegs.ESTAT	= BANK_2 | 0x1D,
-		.commonRegs.ECON2 	= BANK_2 | 0x1E,
-		.commonRegs.ECON1	= BANK_2 | 0x1F
+		.commonRegs 		= {
+			.EIE 			= BANK_2 | 0x1B,
+			.EIR 			= BANK_2 | 0x1C,
+			.ESTAT			= BANK_2 | 0x1D,
+			.ECON2 			= BANK_2 | 0x1E,
+			.ECON1			= BANK_2 | 0x1F
+		}
 	},
-
+	//7) Bank 3 constant definitions.
 	.bank3 = 
 	{
 		.MAADR1				= BANK_3 | 0x00,
@@ -763,13 +818,15 @@ enc28j60Drv dev =
 		.EBSTCSL			= BANK_3 | 0x08,
 		.EBSTCSH			= BANK_3 | 0x09,
 		.MISTAT				= BANK_3 | 0x0A,
-		.undefined[0]		= BANK_3 | 0x0B,
-		.undefined[1]		= BANK_3 | 0x0C,
-		.undefined[2]		= BANK_3 | 0x0D,
-		.undefined[3]		= BANK_3 | 0x0E,
-		.undefined[4]		= BANK_3 | 0x0F,
-		.undefined[5]		= BANK_3 | 0x10,
-		.undefined[6]		= BANK_3 | 0x11,
+		.undefined			= {
+			[0]				= BANK_3 | 0x0B,
+			[1]				= BANK_3 | 0x0C,
+			[2]				= BANK_3 | 0x0D,
+			[3]				= BANK_3 | 0x0E,
+			[4]				= BANK_3 | 0x0F,
+			[5]				= BANK_3 | 0x10,
+			[6]				= BANK_3 | 0x11
+		},
 		.EREVID				= BANK_3 | 0x12,
 		.undefined8			= BANK_3 | 0x13,
 		.undefined9			= BANK_3 | 0x14,
@@ -779,13 +836,15 @@ enc28j60Drv dev =
 		.EPAUSL				= BANK_3 | 0x18,
 		.EPAUSH				= BANK_3 | 0x19,
 		.Reserved2			= BANK_3 | 0x1A,
-		.commonRegs.EIE 	= BANK_3 | 0x1B,
-		.commonRegs.EIR 	= BANK_3 | 0x1C,
-		.commonRegs.ESTAT	= BANK_3 | 0x1D,
-		.commonRegs.ECON2 	= BANK_3 | 0x1E,
-		.commonRegs.ECON1	= BANK_3 | 0x1F
+		.commonRegs			= {
+			.EIE 			= BANK_3 | 0x1B,
+			.EIR 			= BANK_3 | 0x1C,
+			.ESTAT			= BANK_3 | 0x1D,
+			.ECON2 			= BANK_3 | 0x1E,
+			.ECON1			= BANK_3 | 0x1F
+		}
 	},
-
+	//8) PHY Register Definitions
 	.phyReg = 
 	{
 		.PHCON1 	= 0x00,
@@ -798,7 +857,7 @@ enc28j60Drv dev =
 		.PHIR		= 0x13,
 		.PHLCON		= 0x14
 	},
-
+	//9) Opcode definitions
 	.opcode =
 	{
 		.u8readControlRegister 	= (0b000 << 0x05),
@@ -809,19 +868,53 @@ enc28j60Drv dev =
 		.u8BitFieldClear 		= (0b101 << 0x05),
 		.u8SoftReset 			= (0b111 << 0x05) | (0b11111)
 	},
-
+	//10) Interrupt flag clear
+	.bInterruptFlag = false,
+	//12) Bank for keeping track of current bank
 	.bnBank = bank_0,
-	.rxBufStartAddr.u16Val 	= 0x0800,
-	.rxBufEndAddr.u16Val 	= 0x1FFF,
-	.rxLockAddr.u16Val		= 0x0000,
-	.txBufStartAddr			= 0x0000,
-	.txBufEndAddr			= 0x07FF,
-	.MxmPkSize				= 1548,
-	.bInterruptFlag			= false,
-	.rxPkt					= { .nxtPktAddr = {0, 0}, .rxStatVect = {0, 0, 0, 0}, .data	= {0}, .ptrAddr.u16Ptr = 0x0800},
-	.txPkt					= { .data = {0}},
-	.spi 					= { .fncPtrCS = NULL, .fncPtrChipDS = NULL, .fncPtrWrite = NULL, .fncPtrRead = NULL},
-	.fncPtrDelayFunc		= NULL,
+	//13) RX Buffer boundaries and sizes
+	.rxBufStartAddr			= {.u16Val 	= 0x0800},
+	.rxBufEndAddr			= {.u16Val 	= 0x1FFF},
+	.rxLockAddr				= {.u16Val	= 0x0000},
+
+	//14) Maximum TX packet size
+	.txBufStartAddr			= {.u16Val	= 0x0000},
+	.txBufEndAddr			= {.u16Val	= 0x07FF},
+	//15) Maximum TX packet size
+	.MxmPkSize				= {.u16Val  = 1548},
+	//16) MAC Address
+	.mac					= {
+		.u8Mac0 			= mac[0],
+		.u8Mac1 			= mac[1],
+		.u8Mac2 			= mac[2],
+		.u8Mac3 			= mac[3],
+		.u8Mac4 			= mac[4],
+		.u8Mac5 			= mac[5]
+	},
+
+	.rxPkt					= {
+		.nxtPktAddr 		= {0},
+		.rxStatVect 		= {0},
+		.rxPktLen			= {.u16PktLen = 0},
+		.data				= {0},
+		.ptrAddr			= {.u16Ptr = 0x0800}
+	},
+
+	.txPkt					= {
+		.txDstMacAddr		= {
+			.u8DestMac0		= 0xFF,
+			.u8DestMac1		= 0xFF,
+			.u8DestMac2		= 0xFF,
+			.u8DestMac3		= 0xFF,
+			.u8DestMac4		= 0xFF,
+			.u8DestMac5		= 0xFF
+		},
+
+		.txPktLen			=
+		{
+			.u16PktLen		= 0
+		},
+		.data				= {0}
+	},
 
 };
-

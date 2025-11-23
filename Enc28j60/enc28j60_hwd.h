@@ -274,29 +274,29 @@ typedef union __attribute__((packed)) _enc28j60_reg_value
 
 typedef union __attribute__((packed)) _DestAddr
 {
-	uint8_t MacDestAddr[6];
+	uint8_t macDstAddr[6];
 	struct
 	{
-		uint8_t MacAddrByte1;
-		uint8_t MacAddrByte2;
-		uint8_t MacAddrByte3;
-		uint8_t MacAddrByte4;
-		uint8_t MacAddrByte5;
-		uint8_t MacAddrByte6;
+		uint8_t u8DestMac0;
+		uint8_t u8DestMac1;
+		uint8_t u8DestMac2;
+		uint8_t u8DestMac3;
+		uint8_t u8DestMac4;
+		uint8_t u8DestMac5;
 	};
 }DestAddr;
 
 typedef union __attribute__((packed)) _SrcAddr
 {
-	uint8_t MacSrcAddr[6];
+	uint8_t macSrcAddr[6];
 	struct
 	{
-		uint8_t MacAddrByte1;
-		uint8_t MacAddrByte2;
-		uint8_t MacAddrByte3;
-		uint8_t MacAddrByte4;
-		uint8_t MacAddrByte5;
-		uint8_t MacAddrByte6;
+		uint8_t u8Mac0;
+		uint8_t u8Mac1;
+		uint8_t u8Mac2;
+		uint8_t u8Mac3;
+		uint8_t u8Mac4;
+		uint8_t u8Mac5;
 	};
 }SrcAddr;
 
@@ -324,30 +324,15 @@ typedef union __attribute__((packed)) _addrPtr
 typedef struct __attribute__((packed)) _enc28j60_rx_packet
 {
 	//Next Packet Pointer
-	struct
-	{
-		uint8_t nxtPktAddr[2];
-	};
-	//Receive Status Vector
-	struct
-	{
-		uint8_t rxStatVect[4];
-	};
+	uint8_t nxtPktAddr[2];
 
-	//Destination Address
-	DestAddr DstMacAddr;
-
-	//Sour Address
-	SrcAddr SrcMacAddr;
+	uint8_t rxStatVect[4];
 
 	//Packet Data
-	pktLength pktLen;
+	pktLength rxPktLen;
 
 	//Data and all possible padding
 	uint8_t	data[1500];
-
-	//CRC Value
-	uint32_t crc;
 
 	//Pointer Keeper
 	addrPtr ptrAddr;
@@ -357,13 +342,10 @@ typedef struct __attribute__((packed)) _enc28j60_rx_packet
 typedef struct __attribute__((packed)) _enc28j60_tx_packet
 {
 	//Destination Address
-	DestAddr DstMacAddr;
-
-	//Sour Address
-	SrcAddr SrcMacAddr;
+	DestAddr const txDstMacAddr;
 
 	//Packet Data
-	pktLength pktLength;
+	pktLength txPktLen;
 
 	//Data and all possible padding
 	uint8_t	data[1500];
@@ -394,6 +376,8 @@ typedef struct _enc28j60_driver
 	enc28j60_reg_value const txBufEndAddr;
 	enc28j60_reg_value const MxmPkSize;
 
+	//Mac Address
+	SrcAddr mac;
 	//Buffers
 	enc28j60_rx_packet rxPkt;
 	enc28j60_tx_packet txPkt;
@@ -407,12 +391,13 @@ bool enc28j60_intPnd(enc28j60Drv * dev);
 void enc28j60_intSet(enc28j60Drv * dev);
 void enc28j60_intCls(enc28j60Drv * dev);
 
-bool enc28j60_etherTransmit(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t length);
+//bool enc28j60_etherTransmit(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t length);
 bool enc28j60_etherReceive(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t length);
+bool enc28j60_etherTransmit(enc28j60Drv * dev, uint8_t * u8PtrData, const uint16_t length);
 
-uint8_t 	enc28j60_getEtherInterrupt(enc28j60Drv * dev);
-uint16_t 	enc28j60_getPhyInterrupt(enc28j60Drv * dev);
-uint8_t 	enc28j60_getwakeUpInterrupt(enc28j60Drv * dev);
+uint8_t enc28j60_getEtherInterrupt(enc28j60Drv * dev);
+uint16_t enc28j60_getPhyInterrupt(enc28j60Drv * dev);
+uint8_t enc28j60_getwakeUpInterrupt(enc28j60Drv * dev);
 
 uint8_t enc28j60_getPhyRevNumber(enc28j60Drv * dev);
 uint8_t enc28j60_readEtherReg(enc28j60Drv * dev, uint8_t u8Reg);
